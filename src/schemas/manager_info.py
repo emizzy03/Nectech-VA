@@ -1,9 +1,11 @@
 from pydantic import BaseModel
 from typing import List, Tuple
 from src.account_manger_db.account_manager import load_account_managers_info
-from sklearn.ensemble import RandomForestClassifier,GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import pandas as pd
 import numpy as np
+from pathlib import Path
+
 
 class Manager(BaseModel):
     name: str
@@ -18,6 +20,7 @@ class Manager(BaseModel):
     def __repr__(self) -> str:
         """Return a concise string representation of the Manager."""
         return f"{self.name} ({self.location}, {self.expertise})"
+
 
 def create_managers_from_df(df: pd.DataFrame) -> List[Manager]:
     """Create a list of Manager objects from a pandas DataFrame.
@@ -42,6 +45,7 @@ def create_managers_from_df(df: pd.DataFrame) -> List[Manager]:
         for _, row in df.iterrows()
     ]
 
+
 def train_model(file_path: str) -> Tuple[GradientBoostingClassifier, List[Manager]]:
     """
     Train a GradientBoostingClassifier model to predict which managers can accept new accounts.
@@ -60,16 +64,22 @@ def train_model(file_path: str) -> Tuple[GradientBoostingClassifier, List[Manage
     # Construct a DataFrame of features for each manager
     features = pd.DataFrame(
         {
-            "current_accounts": [manager.current_accounts for manager in managers],  # Number of accounts currently managed
-            "workload": [manager.workload for manager in managers],  # Current workload in hours per week
-            "performance_rating": [manager.performance_rating for manager in managers],  # Performance rating of the manager
-            "experience": [manager.experience for manager in managers],  # Industry experience in years
-            "satisfaction_score": [manager.satisfaction_score for manager in managers],  # Client satisfaction score
+            # Number of accounts currently managed
+            "current_accounts": [manager.current_accounts for manager in managers],
+            # Current workload in hours per week
+            "workload": [manager.workload for manager in managers],
+            # Performance rating of the manager
+            "performance_rating": [manager.performance_rating for manager in managers],
+            # Industry experience in years
+            "experience": [manager.experience for manager in managers],
+            # Client satisfaction score
+            "satisfaction_score": [manager.satisfaction_score for manager in managers],
             "workload_per_account": [  # Workload divided by the number of accounts
                 manager.workload / manager.current_accounts if manager.current_accounts else 0
                 for manager in managers
             ],
-            "location": [manager.location for manager in managers],  # Location of the manager
+            # Location of the manager
+            "location": [manager.location for manager in managers],
         }
     )
 
@@ -85,8 +95,18 @@ def train_model(file_path: str) -> Tuple[GradientBoostingClassifier, List[Manage
     model = GradientBoostingClassifier(
         n_estimators=100,  # Number of boosting stages to perform
         max_depth=3,  # Maximum depth of the individual regression estimators
-        learning_rate=0.1  # Learning rate shrinks the contribution of each tree by this factor
+        learning_rate=5.0,  # Learning rate shrinks the contribution of each tree
+
+
     )
+    for epoch in range(10):
+        model.fit(features, target)
+        print(
+            f"Epoch {epoch + 1} - Training accuracy: {model.score(features, target) * 100:.2f}%")
+        # Decrease the learning rate after each epoch
+        learning_rate = 5.0 / (epoch + 2)
+        model.learning_rate = learning_rate
+        
     # Fit the model on the features and target to train it
     model.fit(features, target)
 
@@ -110,16 +130,18 @@ def select_manager(managers: List[Manager], model: GradientBoostingClassifier) -
     """
     # Create a single numpy array to hold all the data for the managers.
     # This is done to make it easier to get the predictions from the model.
-    X = np.array([[manager.current_accounts, manager.workload, manager.performance_rating, manager.experience, manager.satisfaction_score, manager.workload / (manager.current_accounts or 1)] for manager in managers])
-    
+    X = np.array([[manager.current_accounts, manager.workload, manager.performance_rating, manager.experience,
+                 manager.satisfaction_score, manager.workload / (manager.current_accounts or 1)] for manager in managers])
+
     # Get the predictions from the model. The model will return the probability of each manager being able to accept a new account.
-    predictions = model.predict_proba(X)[:, 1]  
-    
+    predictions = model.predict_proba(X)[:, 1]
+
     # Find the index of the manager with the highest probability.
     best_manager_index = np.argmax(predictions)
-    
+
     # Return the manager with the highest probability.
-    return managers[best_manager_index]   
+    return managers[best_manager_index]
+
 
 def assign_manager(file_path: Path, manager_name: str) -> None:
     """
