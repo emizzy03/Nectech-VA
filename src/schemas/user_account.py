@@ -7,10 +7,13 @@ class Create_Account (BaseModel):
     phone: int
 
 
-def info(body: Create_Account):
-    name = body.name
-    email = body.email
-    company_address = body.CompanyAddress
-    phone = body.phone
-
-    return f"Name: {name}, Email: {email}, Company Address: {company_address}, Phone: {phone}"
+def info(account: Create_Account) -> str:
+    """
+    Return a string with the relevant information from the Create_Account object.
+    """
+    return (
+        f"Name: {account.name}, "
+        f"Email: {account.email}, "
+        f"Company Address: {account.CompanyAddress}, "
+        f"Phone: {account.phone}"
+    )

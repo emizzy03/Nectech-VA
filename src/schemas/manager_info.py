@@ -15,11 +15,20 @@ class Manager(BaseModel):
     experience: int
     satisfaction_score: int
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Return a concise string representation of the Manager."""
         return f"{self.name} ({self.location}, {self.expertise})"
 
 def create_managers_from_df(df: pd.DataFrame) -> List[Manager]:
-    managers = [
+    """Create a list of Manager objects from a pandas DataFrame.
+
+    Args:
+        df (pd.DataFrame): A pandas DataFrame containing the manager information.
+
+    Returns:
+        List[Manager]: A list of Manager objects.
+    """
+    return [
         Manager(
             name=row['Manager'],
             location=row['Location'],
@@ -32,46 +41,97 @@ def create_managers_from_df(df: pd.DataFrame) -> List[Manager]:
         )
         for _, row in df.iterrows()
     ]
-    return managers
 
 def train_model(file_path: str) -> Tuple[GradientBoostingClassifier, List[Manager]]:
+    """
+    Train a GradientBoostingClassifier model to predict which managers can accept new accounts.
+
+    Args:
+        file_path (str): The path to the CSV file containing the manager information.
+
+    Returns:
+        Tuple[GradientBoostingClassifier, List[Manager]]: A tuple containing the trained model and a list of Manager objects.
+    """
+    # Load the manager information from a CSV file into a DataFrame
     df = load_account_managers_info(file_path)
+    # Create a list of Manager objects from the DataFrame
     managers = create_managers_from_df(df)
-    
-    data = {
-        "Current Accounts": [manager.current_accounts for manager in managers],
-        "Workload": [manager.workload for manager in managers],
-        "Performance Rating": [manager.performance_rating for manager in managers],
-        "Experience": [manager.experience for manager in managers],
-        "Satisfaction Score": [manager.satisfaction_score for manager in managers],
-        "Workload_per_account": [manager.workload / manager.current_accounts if manager.current_accounts else 0 for manager in managers],
-    }
-    df = pd.DataFrame(data)
-    X = df[["Current Accounts", "Workload", "Performance Rating", "Experience", "Satisfaction Score", "Workload_per_account"]]
-    y = [1 if x >= 5 else 0 for x in df['Current Accounts']]  
-    model = RandomForestClassifier(n_estimators=100)
-    model.fit(X, y)
+
+    # Construct a DataFrame of features for each manager
+    features = pd.DataFrame(
+        {
+            "current_accounts": [manager.current_accounts for manager in managers],  # Number of accounts currently managed
+            "workload": [manager.workload for manager in managers],  # Current workload in hours per week
+            "performance_rating": [manager.performance_rating for manager in managers],  # Performance rating of the manager
+            "experience": [manager.experience for manager in managers],  # Industry experience in years
+            "satisfaction_score": [manager.satisfaction_score for manager in managers],  # Client satisfaction score
+            "workload_per_account": [  # Workload divided by the number of accounts
+                manager.workload / manager.current_accounts if manager.current_accounts else 0
+                for manager in managers
+            ],
+            "location": [manager.location for manager in managers],  # Location of the manager
+        }
+    )
+
+    # One-hot encode the location feature
+    location_dummies = pd.get_dummies(features["location"], prefix="location")
+    features = pd.concat([features, location_dummies], axis=1)
+    features.drop("location", axis=1, inplace=True)
+
+    # Define the target variable: 1 if the manager is overloaded (5 or more accounts), else 0
+    target = np.where(features["current_accounts"] >= 5, 1, 0)
+
+    # Initialize the GradientBoostingClassifier with specific hyperparameters
+    model = GradientBoostingClassifier(
+        n_estimators=100,  # Number of boosting stages to perform
+        max_depth=3,  # Maximum depth of the individual regression estimators
+        learning_rate=0.1  # Learning rate shrinks the contribution of each tree by this factor
+    )
+    # Fit the model on the features and target to train it
+    model.fit(features, target)
+
+    # Return the trained model and the list of Manager objects
     return model, managers
 
+
 def select_manager(managers: List[Manager], model: GradientBoostingClassifier) -> Manager:
-    data = {
-        "Current Accounts": [manager.current_accounts for manager in managers],
-        "Workload": [manager.workload for manager in managers],
-        "Performance Rating": [manager.performance_rating for manager in managers],
-        "Experience": [manager.experience for manager in managers],
-        "Satisfaction Score": [manager.satisfaction_score for manager in managers],
-        "Workload_per_account": [manager.workload / manager.current_accounts if manager.current_accounts else 0 for manager in managers],
-    }
-    df = pd.DataFrame(data)
-    X = df[["Current Accounts", "Workload", "Performance Rating", "Experience", "Satisfaction Score", "Workload_per_account"]]
+    """
+    Select the best manager based on the model's predictions.
 
-     # Use the probabilities directly
+    This function takes in a list of managers and a GradientBoostingClassifier model. It uses the model to predict the
+    probability of each manager being able to accept a new account. The manager with the highest probability is selected.
+
+    Args:
+        managers (List[Manager]): The list of managers to select from.
+        model (GradientBoostingClassifier): The model to use to make predictions.
+
+    Returns:
+        Manager: The best manager to select.
+    """
+    # Create a single numpy array to hold all the data for the managers.
+    # This is done to make it easier to get the predictions from the model.
+    X = np.array([[manager.current_accounts, manager.workload, manager.performance_rating, manager.experience, manager.satisfaction_score, manager.workload / (manager.current_accounts or 1)] for manager in managers])
+    
+    # Get the predictions from the model. The model will return the probability of each manager being able to accept a new account.
     predictions = model.predict_proba(X)[:, 1]  
+    
+    # Find the index of the manager with the highest probability.
     best_manager_index = np.argmax(predictions)
-    return managers[best_manager_index]
-   
+    
+    # Return the manager with the highest probability.
+    return managers[best_manager_index]   
 
-def assign_manager(file_path: str, manager_name: str):
-    df = pd.read_csv(file_path)
-    df.loc[df['Manager'] == manager_name, 'Current Accounts'] += 1
-    df.to_csv(file_path, index=False)
+def assign_manager(file_path: Path, manager_name: str) -> None:
+    """
+    Assign a new account to the given manager by incrementing their current accounts count.
+
+    Args:
+        file_path (Path): The path to the CSV file containing the manager information.
+        manager_name (str): The name of the manager to assign the account to.
+
+    Returns:
+        None
+    """
+    df: pd.DataFrame = pd.read_csv(file_path, index_col='Manager')
+    df.loc[manager_name, 'Current Accounts'] += 1
+    df.to_csv(file_path, index=True)

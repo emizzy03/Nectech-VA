@@ -26,7 +26,7 @@ logo_html = """
 
 st.markdown(logo_html, unsafe_allow_html=True)
 
-st.title("CDW")
+st.title("NECTECH AI Assistant")
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -46,31 +46,27 @@ for message in st.session_state.messages:
 
 # Function to display the user details form
 def user_details_form():
+    """
+    Display a form to collect user details and save them to a CSV file.
+    """
     if "show_form" not in st.session_state:
         st.session_state.show_form = False
 
     if st.session_state.show_form:
-        with st.form(key='user_details_form'):
-            name = st.text_input("Name")
-            email = st.text_input("Email")
-            company_address = st.text_input("Company Address")
-            phone = st.text_input("Phone")
-            submit_button = st.form_submit_button(label='Submit')
+        with st.form(key="user_details_form"):
+            name = st.text_input(label="Name", key="name")
+            email = st.text_input(label="Email", key="email")
+            company_address = st.text_input(label="Company Address", key="company_address")
+            phone = st.text_input(label="Phone", key="phone")
+            submit_button = st.form_submit_button(label="Submit")
 
             if submit_button:
-                # Validate phone input
-                try:
-                    phone = int(phone)
-                except ValueError:
-                    st.error("Phone number must be an integer.")
-                    return None
-
-                if name and email and company_address and phone:
+                if all([name, email, company_address, phone]):
                     user_details = Create_Account(
                         name=name,
                         email=email,
                         CompanyAddress=company_address,
-                        phone=phone
+                        phone=int(phone)
                     )
                     st.success("User details submitted successfully.")
                     st.session_state.user_details = user_details
@@ -80,24 +76,18 @@ def user_details_form():
                     assign_manager(ACCOUNT_MANAGERS_FILE_PATH, assigned_manager)
 
                     # Save user details to CSV
-                    new_data = {
-                        "Name": name,
-                        "Email": email,
-                        "Company Address": company_address,
-                        "Phone": phone,
-                        "Assigned To": assigned_manager
-                    }
                     df = pd.read_csv(CSV_FILE_PATH)
-                    df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+                    df.loc[len(df)] = [name, email, company_address, phone, assigned_manager]
                     df.to_csv(CSV_FILE_PATH, index=False)
 
-                    st.session_state.confirmation_message = "You are to appreciation the user for filling out the form and succesfully creating an acccount"
+                    st.session_state.confirmation_message = (
+                        "Thank you for filling out the form and successfully creating an account."
+                    )
 
                     return user_details
-                else:
-                    st.error("Please fill in all fields.")
-                    return None
     return None
+
+
 
 # Display the form if the state is set
 if st.session_state.get("show_form"):
